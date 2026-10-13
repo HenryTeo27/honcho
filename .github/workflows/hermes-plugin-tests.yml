@@ -2,7 +2,7 @@ name: Hermes Plugin Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, codex/verify-hermes-conclusion-errors-855]
     paths:
       - 'hermes-plugin-honcho/**'
       - '.github/workflows/hermes-plugin-tests.yml'
@@ -40,5 +40,42 @@ jobs:
       - name: Install the test environment
         run: uv sync --locked --group test
 
-      - name: Run tests
-        run: uv run --group test pytest tests
+      - name: Verify the unchanged test baseline
+        run: |
+          for file in __init__.py session_context.py tests/test_session.py; do
+            git show 2714e5a98419223c4bf4ae85aa1b050939b1e3dd:hermes-plugin-honcho/$file > "$file"
+          done
+          uv run --group test pytest -q tests --ignore=tests/test_conclusion_errors.py
+
+      - name: Prove the original bug
+        run: |
+          set +e
+          uv run --group test pytest -q tests/test_conclusion_errors.py -k test_api_error_reaches_tool_response --junitxml=baseline-regression.xml
+          result=$?
+          set -e
+          test "$result" -eq 1
+          uv run --group test python -c 'import xml.etree.ElementTree as E; r=E.parse("baseline-regression.xml").getroot(); s=r.find("testsuite"); assert s.get("tests")=="2" and s.get("failures")=="2" and s.get("errors")=="0"; assert all("Failed to save conclusion." in f.text for f in r.iter("failure"))'
+
+      - name: Restore the fix
+        run: git restore --source=HEAD -- __init__.py session_context.py tests/test_session.py
+
+      - name: Run focused regression tests
+        run: uv run --group test pytest -q tests/test_conclusion_errors.py
+
+      - name: Run session and authentication regressions
+        run: uv run --group test pytest -q tests/test_session.py tests/test_auth_recovery.py tests/test_a2a_sessions.py
+
+      - name: Run the complete plugin suite
+        run: uv run --group test pytest -q tests
+
+  static-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - run: uv sync --locked --all-extras --group dev
+      - run: uv run ruff check src/
+      - run: uv run basedpyright
