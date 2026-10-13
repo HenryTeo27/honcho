@@ -1,0 +1,95 @@
+name: Verify Hermes History Import
+on:
+  push:
+    branches: [codex/verify-hermes-history-import-1252]
+permissions:
+  contents: read
+jobs:
+  plugin:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hermes-plugin-honcho
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: hermes-plugin-honcho/.python-version
+      - run: uv sync --locked --group test
+      - name: Unchanged baseline
+        run: |
+          for file in __init__.py cli.py client.py session_peers.py; do
+            git show 2714e5a98419223c4bf4ae85aa1b050939b1e3dd:hermes-plugin-honcho/$file > "$file"
+          done
+          uv run --group test pytest -q tests --ignore=tests/test_history_import.py --ignore=tests/test_history_import_state.py
+      - name: Original missing command regression
+        run: |
+          set +e
+          uv run --group test pytest -q tests/test_history_import.py -k test_import_command_is_registered --junitxml=before-import.xml
+          code=$?
+          set -e
+          test "$code" -eq 1
+          uv run --group test python -c 'import xml.etree.ElementTree as E; s=E.parse("before-import.xml").getroot().find("testsuite"); assert s.get("tests")=="1" and s.get("errors")=="0" and s.get("failures")=="1"'
+      - name: Restore implementation
+        run: git restore --source=HEAD -- __init__.py cli.py client.py session_peers.py
+      - name: Focused import tests
+        run: uv run --group test pytest -q tests/test_history_import.py tests/test_history_import_state.py
+      - name: Related regression tests
+        run: uv run --group test pytest -q tests/test_cli.py tests/test_client.py tests/test_session.py tests/test_session_routing_integration.py tests/test_a2a_sessions.py tests/test_identity_signature.py tests/test_client_identity_isolation.py
+      - name: Complete plugin suite
+        run: uv run --group test pytest -q tests
+  server-smoke-and-static:
+    runs-on: ubuntu-latest
+    services:
+      database:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_DB: import_smoke
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: [5432:5432]
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      PYTHON_DOTENV_DISABLED: '1'
+      HONCHO_CONFIG_TOML_DISABLED: '1'
+      DB_CONNECTION_URI: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/import_smoke
+      AUTH_USE_AUTH: 'false'
+      SENTRY_ENABLED: 'false'
+      LANGFUSE_PUBLIC_KEY: ''
+      LLM_OPENAI_API_KEY: obviously-fake-ci-key
+      LLM_OPENAI_BASE_URL: http://127.0.0.1:8010/v1
+      EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: http://127.0.0.1:8010/v1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - run: uv sync --locked --all-extras --group dev
+      - run: uv run ruff check src/
+      - run: uv run basedpyright
+      - run: uv run ruff check hermes-plugin-honcho/history_import.py hermes-plugin-honcho/import_state.py hermes-plugin-honcho/tests/test_history_import.py hermes-plugin-honcho/tests/test_history_import_state.py
+      - name: Install plugin smoke runtime
+        run: uv sync --locked --group test
+        working-directory: hermes-plugin-honcho
+      - run: uv run alembic upgrade head
+      - name: Start isolated services and run fixture smoke
+        run: |
+          uv run uvicorn src.mock_provider.main:app --host 127.0.0.1 --port 8010 > /tmp/mock-provider.log 2>&1 &
+          mock_pid=$!
+          uv run uvicorn src.main:app --host 127.0.0.1 --port 8000 > /tmp/honcho-smoke.log 2>&1 &
+          api_pid=$!
+          trap 'kill "$mock_pid" "$api_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8000/openapi.json >/dev/null; then break; fi
+            sleep 1
+          done
+          if ! hermes-plugin-honcho/.venv/bin/python .ci/smoke_history_import.py; then
+            cat /tmp/honcho-smoke.log
+            cat /tmp/mock-provider.log
+            exit 1
+          fi
