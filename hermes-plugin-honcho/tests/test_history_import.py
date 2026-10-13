@@ -205,7 +205,11 @@ class FakeHonchoAPI:
 
 @pytest.fixture
 def history_source(monkeypatch):
-    home = Path(os.environ["HERMES_HOME"])
+    # Keep the source outside HOME/.hermes, which the live-DB guard protects on POSIX.
+    # HOME still points to the isolated test home; the guard remains enabled.
+    home = Path(os.environ["HERMES_HOME"]).with_name("import-fixture")
+    home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(home))
     monkeypatch.setattr(Path, "home", lambda: home.parent)
     monkeypatch.setattr(
         "hermes_plugin_honcho.client._get_default_hermes_home", lambda: home

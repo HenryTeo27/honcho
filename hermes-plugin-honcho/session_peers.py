@@ -30,6 +30,7 @@ def assistant_peer_id_for(config: Any) -> str:
 def a2a_session_key_for(session_key: str, config: Any, author: dict[str, Any]) -> str:
     """The live bot-session naming rule, also used for proven historical bot authors."""
     from agent.turn_author import a2a_key
+
     from .client import HonchoClientConfig
 
     prefix, _, ident = (a2a_key(author) or "").partition(":")
