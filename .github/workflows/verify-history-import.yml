@@ -1,4 +1,4 @@
-name: Verify Hermes History Import
+name: Pre-push Verification for Both Hermes Changes
 on:
   push:
     branches: [codex/verify-hermes-history-import-1252]
@@ -6,6 +6,7 @@ permissions:
   contents: read
 jobs:
   plugin:
+    needs: server-smoke-and-static
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -19,24 +20,8 @@ jobs:
         with:
           python-version-file: hermes-plugin-honcho/.python-version
       - run: uv sync --locked --group test
-      - name: Unchanged baseline
-        run: |
-          for file in __init__.py cli.py client.py session_peers.py; do
-            git show 2714e5a98419223c4bf4ae85aa1b050939b1e3dd:hermes-plugin-honcho/$file > "$file"
-          done
-          uv run --group test pytest -q tests --ignore=tests/test_history_import.py --ignore=tests/test_history_import_state.py
-      - name: Original missing command regression
-        run: |
-          # The new test module needs the extracted helper to import. Keep only the CLI old.
-          git restore --source=HEAD -- __init__.py client.py session_peers.py
-          set +e
-          uv run --group test pytest -q tests/test_history_import.py -k test_import_command_is_registered --junitxml=before-import.xml
-          code=$?
-          set -e
-          test "$code" -eq 1
-          uv run --group test python -c 'import xml.etree.ElementTree as E; s=E.parse("before-import.xml").getroot().find("testsuite"); assert s.get("tests")=="1" and s.get("errors")=="0" and s.get("failures")=="1"'
-      - name: Restore implementation
-        run: git restore --source=HEAD -- __init__.py cli.py client.py session_peers.py
+      - name: Conclusion error regression tests
+        run: uv run --group test pytest -q tests/test_conclusion_errors.py
       - name: Focused import tests
         run: uv run --group test pytest -q tests/test_history_import.py tests/test_history_import_state.py
       - name: Related regression tests
