@@ -476,7 +476,7 @@ database. Gateway sources require explicit selection, for example
 `--source cli,desktop,telegram`. Gateway history needs stored proof of a direct
 conversation with the install owner. A configured peer pin alone is not proof.
 Ambiguous authors and group conversations are skipped and reported. Recognized bot
-conversations use the live bot routing rules when `a2aEnabled` is enabled.
+conversations use the live bot routing rules when `a2aSessions` is enabled.
 
 Compression chains count as one logical conversation. Each physical segment keeps
 its live destination and its own progress. Imported text uses the live message
@@ -573,3 +573,16 @@ unresolved work. Check the final summary before resuming live writes.
   }
 }
 ```
+
+## Development
+
+The unit tests run against a pinned Hermes install (the plugin imports Hermes core
+modules) and make no network calls:
+
+```bash
+cd hermes-plugin-honcho
+uv run --group test pytest tests
+```
+
+The Hermes pin is the `hermes-agent` entry in the `test` dependency group of
+`pyproject.toml`; bump it together with `uv lock`.

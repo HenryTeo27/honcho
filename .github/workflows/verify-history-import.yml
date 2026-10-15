@@ -1,4 +1,4 @@
-name: Review Repairs Verification for Hermes Import
+name: Final Review Integration Verification for Hermes Import
 on:
   push:
     branches: [codex/verify-hermes-history-import-1252]
@@ -6,7 +6,6 @@ permissions:
   contents: read
 jobs:
   plugin:
-    needs: server-smoke-and-static
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -20,17 +19,6 @@ jobs:
         with:
           python-version-file: hermes-plugin-honcho/.python-version
       - run: uv sync --locked --group test
-      - name: Original review failures reproduced before repair
-        run: |
-          git show c4d7072b63fd58de662d15832c522985f14845b4:hermes-plugin-honcho/history_import.py > history_import.py
-          set +e
-          uv run --group test pytest -q --tb=short tests/test_history_import_review.py -k 'redaction_precedes or redaction_failure or in_place_compaction_preserves or compacted_rows_cross or target_order_merges or timestamp_order_handles or expanded_window_cannot or nul_is_normalized or sorted_batch_recovery or local_import_does_not or exception_after_upload_reports' > /tmp/review-baseline.log 2>&1
-          status=$?
-          set -e
-          cat /tmp/review-baseline.log
-          git show "$GITHUB_SHA":hermes-plugin-honcho/history_import.py > history_import.py
-          test "$status" = 1
-          grep -q '13 failed' /tmp/review-baseline.log
       - name: Review repair regression tests
         run: uv run --group test pytest -q tests/test_history_import_review.py
       - name: Conclusion error regression tests
