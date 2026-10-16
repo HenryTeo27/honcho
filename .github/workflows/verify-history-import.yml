@@ -1,4 +1,4 @@
-name: Upstream Merge Compatibility Verification for Hermes Import
+name: Connection Failure Recovery Verification for Hermes Import
 on:
   push:
     branches: [codex/verify-hermes-history-import-1252]
@@ -19,6 +19,17 @@ jobs:
         with:
           python-version-file: hermes-plugin-honcho/.python-version
       - run: uv sync --locked --group test
+      - name: Pre-connect failure regressions fail before the repair
+        run: |
+          git show acd0437dc56b9e971431e60ca27e56b726676c4e:hermes-plugin-honcho/history_import.py > history_import.py
+          set +e
+          uv run --group test pytest -q --tb=short tests/test_history_import_review.py -k 'connect_failure_can_be_resumed or connect_failure_after_confirmed_batch or connect_failure_checkpoint_error' > /tmp/connect-failure-baseline.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/connect-failure-baseline.log
+          git show "$GITHUB_SHA":hermes-plugin-honcho/history_import.py > history_import.py
+          test "$status" = 1
+          grep -q '3 failed' /tmp/connect-failure-baseline.log
       - name: Review repair regression tests
         run: uv run --group test pytest -q tests/test_history_import_review.py
       - name: Conclusion error regression tests
