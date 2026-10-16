@@ -1,4 +1,4 @@
-name: Final Review Integration Verification for Hermes Import
+name: Upstream Merge Compatibility Verification for Hermes Import
 on:
   push:
     branches: [codex/verify-hermes-history-import-1252]
@@ -26,7 +26,7 @@ jobs:
       - name: Focused import tests
         run: uv run --group test pytest -q tests/test_history_import.py tests/test_history_import_state.py
       - name: Related regression tests
-        run: uv run --group test pytest -q tests/test_cli.py tests/test_client.py tests/test_session.py tests/test_session_routing_integration.py tests/test_a2a_sessions.py tests/test_identity_signature.py tests/test_client_identity_isolation.py
+        run: uv run --group test pytest -q tests/test_cli.py tests/test_client.py tests/test_session.py tests/test_session_routing_integration.py tests/test_a2a_sessions.py tests/test_identity_signature.py tests/test_client_identity_isolation.py tests/test_resume_catch_up.py tests/test_shutdown.py
       - name: Complete plugin suite
         run: uv run --group test pytest -q tests
   server-smoke-and-static:
